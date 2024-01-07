@@ -7,11 +7,6 @@ import pymysql
 
 import configparser
 
-# configparser init
-cfn = configparser.ConfigParser()
-# ee.Initialize()
-
-
 # p1 = ee.Geometry.Point([100.061, 7.305], 'EPSG: 4326')
 # p2 = ee.Geometry.Point([8.305, 101.061])
 #
@@ -136,31 +131,43 @@ def getEmdatFromMysql(conSet, headers):
 
 if __name__ == '__main__':
 
-    print('666666')
+    # init
+    cfg = configparser.ConfigParser()
+    ee.Initialize()
 
-    cfn.read('emdatGee.ini')
-    conSet = dict(cfn.items('mysql_connset'))
-
-
-    satellite_bands = dict(cfn.items('satellite_bands'))
-    landsat8_bands = eval(satellite_bands['landsat8_bands'])
-    sentinal2_bands = eval(satellite_bands['sentinal2_bands'])
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+    print(BASE_DIR)
+    cfg.read(os.path.join(BASE_DIR ,'emdatGee.ini'))
+    conSet = dict(cfg.items('mysql_connset'))
+    print(conSet)
 
     # get emdat data test
     # set selecting headers
-    emdat_headers = eval(dict(cfn.items('mysql_attribute'))['emdat_headers'])
+    emdat_headers = eval(dict(cfg.items('mysql_attribute'))['emdat_headers'])
 
-    # data = getEmdatFromMysql(conSet, emdat_headers)
-    # print(data.loc[0])
-    #
-    # # get LS8 band data test
-    # point = [100.061, 7.305]
-    # # landsat8_bands=['SR_B1', 'SR_B2', 'SR_B3', 'SR_B4', 'SR_B5', 'SR_B6', 'SR_B7']
-    # imgcollection = 'LANDSAT/LC08/C02/T1_L2'
-    # time = ['2017-01-01', '2017-12-31']
-    #
-    #
-    # df = getPointSR_FromCollections(point, landsat8_bands, imgcollection, time)
-    # print(df.info())
-    # print(df)
-    # df.to_csv('data/test.csv')
+    data = getEmdatFromMysql(conSet, emdat_headers)
+    print(data)
+
+
+'''
+# get LS8 band data test
+    point = [100.061, 7.305]
+
+    # landsat8_bands=['SR_B1', 'SR_B2', 'SR_B3', 'SR_B4', 'SR_B5', 'SR_B6', 'SR_B7']
+    satellite_bands = dict(cfg.items('satellite_bands'))
+    landsat8_bands = eval(satellite_bands['landsat8_bands'])
+    sentinal2_bands = eval(satellite_bands['sentinal2_bands'])
+    imgcollection = 'LANDSAT/LC08/C02/T1_L2'
+    time = ['2017-01-01', '2017-12-31']
+
+    df = getPointSR_FromCollections(point, landsat8_bands, imgcollection, time)
+    print(df.info())
+    print(df)
+
+    dataDir = os.path.abspath(os.path.join(os.getcwd(), "./"))
+    print(dataDir)
+
+    df.to_csv(os.path.join(dataDir, 'data', 'test.csv'))
+
+'''
+
