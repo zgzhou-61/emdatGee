@@ -22,16 +22,24 @@ def getLadst8Img(roi, time):
     return customComposite
 
 def getImgFromGee(roi_axis, time, roi_range = 10, collection = 'landsat8', scale = 20, out_dir = 'data'):
+    '''
 
+
+    :param roi_axis: target point axis
+    :param time: time limit
+    :param roi_range: range of the roi(rectangle), km
+    :param collection: image collection(landsat8, sentinel2)
+    :param scale: scale of image
+    :param out_dir: the dir of ouput data
+    :return: None
+    '''
+
+    startDate = time[0]
+    endDate = time[1]
     # check roi_axis[lat, lon]
     if roi_axis[0] < -90.0 or roi_axis[0] > 90.0 or roi_axis[1] > 180.0 or roi_axis[1] < -180:
         print("Wrong roi_axis(latitude, longitude), -90.0<=lat<=90.0, -180.0<=lon<=180.0!")
         return 
-
-
-    # check time
-    #
-
 
     lat = roi_axis[0]
     lon = roi_axis[1]
@@ -44,7 +52,7 @@ def getImgFromGee(roi_axis, time, roi_range = 10, collection = 'landsat8', scale
 
 
     if collection == 'landsat8':
-        filename = '{}/LAST08C2T1-{}-{}.tif'.format(out_dir, time[0], time[1])
+        filename = '{}/LAST08C2T1-{}-{}.tif'.format(out_dir, startDate, endDate)
         geemap.ee_export_image(getLadst8Img(roi, time), filename=filename,
                                scale=scale, region=roi)
 

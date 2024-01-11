@@ -2,46 +2,15 @@ import geemap
 import ee
 import os
 import pandas as pd
-import time
 import pymysql
-
 import configparser
 
-# p1 = ee.Geometry.Point([100.061, 7.305], 'EPSG: 4326')
-# p2 = ee.Geometry.Point([8.305, 101.061])
-#
-# roi = ee.FeatureCollection(ee.List([ee.Feature(p1).set('name', 'p1'),
-#                                     ee.Feature(p2).set('name', 'p2')]))
-#
-# dataset = ee.ImageCollection('LANDSAT/LC08/C02/T1_L2')\
-#     .filterDate('2017-01-30', '2017-9-20')
-
-# for im in dataset:
-#     print(im.scale)
-# out_dir = 'data/'
-# out_csv = os.path.join(out_dir, 'lant8Test.csv')
-# def test1(image):
-#     re = geemap.extract_values_to_points(roi, image)
-#     return re
-# k = dataset.map(test1)
-
-# geom_values = dataset.select(['SR_B1', 'SR_B2', 'SR_B3', 'SR_B4', 'SR_B5', 'SR_B6', 'SR_B7']).getRegion(geometry=p1, scale=30)
-# # print(geom_values)
-#
-# geom_values_list = ee.List(geom_values).getInfo()
-# header = geom_values_list[0]
-# geom_df = pd.DataFrame(geom_values_list[1:], columns=header)
-# df_time = geom_df['time']
-# geom_df['datetime'] = pd.to_datetime(geom_df['time'],unit='ms', utc=False)
-# strTime = geom_df.datetime.map(lambda x: x.strftime('%Y-%m-%d'))
-#
-# geom_df['SR_B1'] = geom_df['SR_B1'].map(lambda x:x * 2.75e-05 - 0.2)
-# print(geom_df.filter(items=['SR_B1', 'SR_B2', 'SR_B3', 'SR_B4', 'SR_B5', 'SR_B6', 'SR_B7']))
-
-# cali_geom_values = dataset.map(calibration).getRegion(geometry=p1, scale=30)
-# print(cali_geom_values)
-
 def maskL8sr(image):
+    '''
+    landsat8 cloud mask
+    :param image: image of lansat8 from gee
+    :return: image after cloud masking
+    '''
     qaMask = image.select('QA_PIXEL').bitwiseAnd(37).eq(0)
     saturationMask = image.select('QA_RADSAT').eq(0)
 
@@ -52,6 +21,14 @@ def maskL8sr(image):
         .updateMask(saturationMask)
 
 def calibration_imgcollection(imgcolltion, bands, scale, offset):
+    '''
+    calibrating ImageCollection
+    :param imgcolltion: the ImageCollection need to be calibrated
+    :param bands: bands of the ImageCollection
+    :param scale: scale of image
+    :param offset: the offset of the ImageCollection
+    :return: the ImageCollection after calibrating
+    '''
 
     def calibration(image):
         newBand = image.select(bands).multiply(scale).add(offset)
@@ -61,6 +38,15 @@ def calibration_imgcollection(imgcolltion, bands, scale, offset):
     return cal_imgcolltion
 
 def getPointSR_FromCollections(point_axis, bands, srcImgColletion, time, scale=30):
+    '''
+    get bands infomation of the taget point
+    :param point_axis: axis of point
+    :param bands: bands of satellite
+    :param srcImgColletion: taget ImageCollection from gee
+    :param time: time limit
+    :param scale: scale of image
+    :return: bands infomation of taget point
+    '''
 
     # set imgCollection
     dataset = ee.ImageCollection(srcImgColletion)\
@@ -86,10 +72,28 @@ def getPointSR_FromCollections(point_axis, bands, srcImgColletion, time, scale=3
 
     return geom_df
 
-def timeSet(startYear, startMonth, startDay, endYear, endMonth, endDay):
-    if startDay == None or endDay == None:
-        print('noday')
+# set startSate and endDate
+def timeSet(startYear, startMonth, endYear, endMonth):
+    '''
+    Get the time range of one year before and after the target time period
+    :param startYear: start year
+    :param startMonth: star month
+    :param endYear: end year
+    :param endMonth: end month
+    :return: time limit
+    '''
 
+    if startMonth - 6 >= 1:
+        startDate = '{0}-{1}-1'.format(startYear, startMonth - 6)
+    else:
+        startDate = '{0}-{1}-1'.format(startYear - 1, 12 + (startMonth - 6))
+
+    if endMonth - 6 >= 1:
+        endDate = '{0}-{1}-1'.format(endYear + 1, 0 + (endMonth - 6))
+    else:
+        endDate = '{0}-{1}-1'.format(endYear, endMonth + 6)
+
+    return [startDate, endDate]
 
 def getEmdatFromMysql(conSet, headers):
     '''
@@ -129,15 +133,20 @@ def getEmdatFromMysql(conSet, headers):
     re = cur.fetchall()
     return pd.DataFrame(re,columns=headers)
 
+def updateEmdatBandsInfo():
+    pass
+
 if __name__ == '__main__':
+    # dateRe = timeSet(2017, 7, 2017, 12)
+    # print(dateRe)
 
     # init
     cfg = configparser.ConfigParser()
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+    cfg.read(os.path.join(BASE_DIR, 'emdatGee.ini'))
     ee.Initialize()
 
-    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-    print(BASE_DIR)
-    cfg.read(os.path.join(BASE_DIR ,'emdatGee.ini'))
+
     conSet = dict(cfg.items('mysql_connset'))
     print(conSet)
 
@@ -146,11 +155,15 @@ if __name__ == '__main__':
     emdat_headers = eval(dict(cfg.items('mysql_attribute'))['emdat_headers'])
 
     data = getEmdatFromMysql(conSet, emdat_headers)
-    print(data)
+    d0 = data.loc[0]
+    print(d0)
 
+    startYear = int(d0['Start Year'])
+    startMonth = int(d0['Start Month'])
+    endYear = int(d0['End Year'])
+    endMonth = int(d0['End Month'])
 
-'''
-# get LS8 band data test
+    # get LS8 band data test
     point = [100.061, 7.305]
 
     # landsat8_bands=['SR_B1', 'SR_B2', 'SR_B3', 'SR_B4', 'SR_B5', 'SR_B6', 'SR_B7']
@@ -158,16 +171,20 @@ if __name__ == '__main__':
     landsat8_bands = eval(satellite_bands['landsat8_bands'])
     sentinal2_bands = eval(satellite_bands['sentinal2_bands'])
     imgcollection = 'LANDSAT/LC08/C02/T1_L2'
-    time = ['2017-01-01', '2017-12-31']
+    time = timeSet(startYear, startMonth, endYear, endMonth)
 
     df = getPointSR_FromCollections(point, landsat8_bands, imgcollection, time)
+    df = df.dropna(axis=0, how='any')
     print(df.info())
-    print(df)
+    print(df['SR_B7'])
 
     dataDir = os.path.abspath(os.path.join(os.getcwd(), "./"))
+
     print(dataDir)
 
     df.to_csv(os.path.join(dataDir, 'data', 'test.csv'))
 
-'''
+
+
+
 
