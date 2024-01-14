@@ -14,18 +14,8 @@ class Emdat():
         self.__mysql_attribute = dict(self.__cfg.items('mysql_attribute'))
         self.__emdatData = None
 
-    def getEmdatFromMysql(self):
-        '''
-        get emdat data(Points) from mysql, set mysql connect args from emdatGee.ini
-        :return:
-        '''
-
-        table = self.__mysql_attribute['table']
-        emdat_headers = eval(self.__mysql_attribute['emdat_headers'])
-        sql_condition = self.__mysql_attribute['sql_condition']
-
         # connect mysql
-        conn = pymysql.connect(
+        self.conn = pymysql.connect(
             host=self.__conSet['host'],
             port=int(self.__conSet['port']),
             user=self.__conSet['user'],
@@ -34,15 +24,25 @@ class Emdat():
             charset=self.__conSet['charset']
         )
 
+    def getEmdatFromMysql(self):
+        '''
+        get emdat data(Points) from mysql, set mysql connect args from emdatGee.ini
+        :return:
+        '''
+
+        emdat_table = self.__mysql_attribute['emdat_table']
+        emdat_headers = eval(self.__mysql_attribute['emdat_headers'])
+        sql_condition = self.__mysql_attribute['sql_condition']
+
         # headers to sql
         select_items = '`' + str(emdat_headers[0]) + '`'
         for i in emdat_headers[1:]:
             select_items = select_items + ', `' + i + '`'
 
         # set select sql
-        cur = conn.cursor()
+        cur = self.conn.cursor()
         cur.execute("SELECT" + select_items +
-                " FROM `" + table + "` em " + sql_condition)
+                " FROM `" + emdat_table + "` em " + sql_condition)
                 # "WHERE em.Latitude != 'Null' AND em.Longitude != 'Null'")
 
         result = cur.fetchall()
