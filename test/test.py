@@ -3,6 +3,7 @@ import os
 import pandas as pd
 import pymysql
 import configparser
+from sqlalchemy import create_engine
 
 
 class Emdat():
@@ -19,20 +20,20 @@ class Emdat():
         self.conn = pymysql.connect(
             host=self.__conSet['host'],
             port=int(self.__conSet['port']),
-            user=self.__conSet['user'],
+            user=self.__conSet['username'],
             password=self.__conSet['password'],
-            db=self.__conSet['db'],
+            db=self.__conSet['database'],
             charset=self.__conSet['charset']
         )
 
     def getEmdatFromMysql(self):
         '''
         get emdat data(Points) from mysql, set mysql connect args from emdatGee.ini
-        :return:
+        :return:emdat data(Points) dataframe
         '''
 
         emdat_table = self.__mysql_attribute['emdat_table']
-        emdat_headers = eval(self.__mysql_attribute['emdat_headers'])
+        emdat_headers = ['DisNo.', 'Latitude', 'Longitude', 'Start Year', 'Start Month',  'End Year', 'End Month']
         sql_condition = self.__mysql_attribute['sql_condition']
 
         # headers to sql
@@ -131,27 +132,54 @@ class Emdat():
                       "`DisNo.` varchar(255) ," \
                       "FOREIGN KEY (`DisNo.`) REFERENCES `em-dat data_2017-2023nature` (`DisNo.`)," \
                       "id varchar(255)," \
-                      "SR_B1 DECIMAL(20)," \
-                      "SR_B2 DECIMAL(20)," \
-                      "SR_B3 DECIMAL(20)," \
-                      "SR_B4 DECIMAL(20)," \
-                      "SR_B5 DECIMAL(20)," \
-                      "SR_B6 DECIMAL(20)," \
-                      "SR_B7 DECIMAL(20)," \
+                      "SR_B1 DECIMAL(12, 10)," \
+                      "SR_B2 DECIMAL(12, 10)," \
+                      "SR_B3 DECIMAL(12, 10)," \
+                      "SR_B4 DECIMAL(12, 10)," \
+                      "SR_B5 DECIMAL(12, 10)," \
+                      "SR_B6 DECIMAL(12, 10)," \
+                      "SR_B7 DECIMAL(12, 10)," \
                       "datetime DATE)"
 
         cur.execute(createTableSql)
 
+        # update to BandsInfoDB
+        eData = self.getEmdatFromMysql()
 
+        # eData.to_sql()
+        engineInfo = '{0}+{1}://{2}:{3}@{4}:{5}/{6}?charset={7}'.format(
+            self.__conSet['dialect'],
+            self.__conSet['driver'],
+            self.__conSet['username'],
+            self.__conSet['password'],
+            self.__conSet['host'],
+            self.__conSet['port'],
+            self.__conSet['database'],
+            self.__conSet['charset']
+        )
+        conn = create_engine(engineInfo).connect()
 
+        imgcollection = 'LANDSAT/LC08/C02/T1_L2'
+        landsat8_bands = ['SR_B1', 'SR_B2', 'SR_B3', 'SR_B4', 'SR_B5', 'SR_B6', 'SR_B7']
+        for row in eData.itertuples():
+            bData = self.getPointSR_FromCollections((float(row[3]), float(row[2])),
+                                                    landsat8_bands,
+                                                    imgcollection,
+                                                    self.timeSet(int(row[4]), int(row[5]), int(row[6]), int(row[7])))
+            bData = bData.drop(['longitude', 'latitude'], axis=1)
+            bData = bData.dropna(axis=0, how='any')
+            bData['DisNo.'] = row[1]
+            bData.to_sql(name='bandsinfo_table', con=conn, if_exists='append', index=False)
 
-
-
+        conn.close()
 
 
 if __name__ == '__main__':
     emdat = Emdat()
     emdat.updateBandsInfo2DB()
+    # eData = emdat.getEmdatFromMysql()
+    # print(eData)
+
 
 
 
