@@ -5,7 +5,6 @@ import pymysql
 import configparser
 from sqlalchemy import create_engine
 
-
 class Emdat():
     def __init__(self):
         ee.Initialize()
@@ -14,7 +13,8 @@ class Emdat():
         self.__cfg.read(os.path.join(self.__BASE_DIR, 'emdatGee.ini'))
         self.__conSet = dict(self.__cfg.items('mysql_connset'))
         self.__mysql_attribute = dict(self.__cfg.items('mysql_attribute'))
-        self.__emdatData = None
+        self.__emdat_table = self.__mysql_attribute['emdat_table']
+        self.__lat8_bandsInfo_table = self.__mysql_attribute['lat8_bandsinfo_table']
 
         # connect mysql
         self.conn = pymysql.connect(
@@ -32,9 +32,8 @@ class Emdat():
         :return:emdat data(Points) dataframe
         '''
 
-        emdat_table = self.__mysql_attribute['emdat_table']
         emdat_headers = ['DisNo.', 'Latitude', 'Longitude', 'Start Year', 'Start Month',  'End Year', 'End Month']
-        sql_condition = self.__mysql_attribute['sql_condition']
+        sql_condition = "WHERE em.Latitude != 'Null' AND em.Longitude != 'Null'"
 
         # headers to sql
         select_items = '`' + str(emdat_headers[0]) + '`'
@@ -44,14 +43,14 @@ class Emdat():
         # set select sql
         cur = self.conn.cursor()
         cur.execute("SELECT" + select_items +
-                    " FROM `" + emdat_table + "` em " + sql_condition)
+                    " FROM `" + self.__emdat_table + "` em " + sql_condition)
         # "WHERE em.Latitude != 'Null' AND em.Longitude != 'Null'")
 
         result = cur.fetchall()
         cur.close()
         return pd.DataFrame(result, columns=emdat_headers)
 
-    def timeSet(self, startYear, startMonth, endYear, endMonth):
+    def __timeSet(self, startYear, startMonth, endYear, endMonth):
         '''
         Get the time range of one year before and after the target time period
         :param startYear: start year
@@ -100,11 +99,47 @@ class Emdat():
                 thermal_bands, None, True
             )
 
+        def mask_s2_clouds(image):
+            """Masks clouds in a Sentinel-2 image using the QA band.
+
+            Args:
+                image (ee.Image): A Sentinel-2 image.
+
+            Returns:
+                ee.Image: A cloud-masked Sentinel-2 image.
+            """
+            qa = image.select('QA60')
+
+            # Bits 10 and 11 are clouds and cirrus, respectively.
+            cloud_bit_mask = 1 << 10
+            cirrus_bit_mask = 1 << 11
+
+            # Both flags should be set to zero, indicating clear conditions.
+            mask = (
+                qa.bitwiseAnd(cloud_bit_mask)
+                .eq(0)
+                .And(qa.bitwiseAnd(cirrus_bit_mask).eq(0))
+            )
+
+            return image.updateMask(mask)
+
         # set imgCollection
-        dataset = ee.ImageCollection(srcImgColletion) \
-            .filterDate(time[0], time[1]) \
-            .map(apply_scale_factors) \
-            .map(maskL8sr)
+        lat8Src = "LANDSAT/LC08/C02/T1_L2"
+        # s2 can't use
+        # s2Src = "COPERNICUS/S2_SR_HARMONIZED"
+
+        if srcImgColletion == lat8Src:
+            dataset = ee.ImageCollection(srcImgColletion) \
+                .filterDate(time[0], time[1]) \
+                .map(apply_scale_factors) \
+                .map(maskL8sr)
+        # elif srcImgColletion == s2Src:
+        #     dataset = ee.ImageCollection(srcImgColletion) \
+        #         .filterDate(time[0], time[1]) \
+        #         .map(mask_s2_clouds)
+        else:
+            return "Wrong ImgCollection!"
+
 
         # set roi
         roi = ee.Geometry.Point(list(point_axis))
@@ -121,32 +156,26 @@ class Emdat():
 
         return geom_df
 
-    def updateBandsInfo2DB(self):
-
+    def initLat8ToDB(self):
         cur = self.conn.cursor()
-
-        # get BandsInfoTable_Name
-        emdat_bandsInfo_table = self.__mysql_attribute['emdat_bandsinfo_table']
         # create emdat_bandsInfo_table
-        createTableSql = "CREATE TABLE IF NOT EXISTS " + emdat_bandsInfo_table + "(" \
-                      "`DisNo.` varchar(255) ," \
-                      "FOREIGN KEY (`DisNo.`) REFERENCES `em-dat data_2017-2023nature` (`DisNo.`)," \
-                      "id varchar(255)," \
-                      "SR_B1 DECIMAL(12, 10)," \
-                      "SR_B2 DECIMAL(12, 10)," \
-                      "SR_B3 DECIMAL(12, 10)," \
-                      "SR_B4 DECIMAL(12, 10)," \
-                      "SR_B5 DECIMAL(12, 10)," \
-                      "SR_B6 DECIMAL(12, 10)," \
-                      "SR_B7 DECIMAL(12, 10)," \
-                      "datetime DATE)"
+        createTableSql = "CREATE TABLE IF NOT EXISTS " + self.__lat8_bandsInfo_table + "(" \
+            "`DisNo.` varchar(255) ," \
+            "FOREIGN KEY (`DisNo.`) REFERENCES `" + self.__emdat_table + "` (`DisNo.`)," \
+            "id varchar(255)," \
+            "SR_B1 DECIMAL(12, 10)," \
+            "SR_B2 DECIMAL(12, 10)," \
+            "SR_B3 DECIMAL(12, 10)," \
+            "SR_B4 DECIMAL(12, 10)," \
+            "SR_B5 DECIMAL(12, 10)," \
+            "SR_B6 DECIMAL(12, 10)," \
+            "SR_B7 DECIMAL(12, 10)," \
+            "datetime DATE)"
 
         cur.execute(createTableSql)
 
-        # update to BandsInfoDB
+        # bandInfoDate to BandsInfoDB
         eData = self.getEmdatFromMysql()
-
-        # eData.to_sql()
         engineInfo = '{0}+{1}://{2}:{3}@{4}:{5}/{6}?charset={7}'.format(
             self.__conSet['dialect'],
             self.__conSet['driver'],
@@ -165,20 +194,27 @@ class Emdat():
             bData = self.getPointSR_FromCollections((float(row[3]), float(row[2])),
                                                     landsat8_bands,
                                                     imgcollection,
-                                                    self.timeSet(int(row[4]), int(row[5]), int(row[6]), int(row[7])))
+                                                    self.__timeSet(int(row[4]), int(row[5]), int(row[6]), int(row[7])))
             bData = bData.drop(['longitude', 'latitude'], axis=1)
             bData = bData.dropna(axis=0, how='any')
             bData['DisNo.'] = row[1]
-            bData.to_sql(name='bandsinfo_table', con=conn, if_exists='append', index=False)
+            bData.to_sql(name=self.__lat8_bandsInfo_table, con=conn, if_exists='append', index=False)
 
         conn.close()
+
+    def initBandsInfo2DB(self):
+        self.initLat8ToDB()
 
 
 if __name__ == '__main__':
     emdat = Emdat()
-    emdat.updateBandsInfo2DB()
-    # eData = emdat.getEmdatFromMysql()
-    # print(eData)
+    # print(emdat.getEmdatFromMysql())
+    emdat.initBandsInfo2DB()
+    # COPERNICUS/S2_SR_HARMONIZED
+    # s2_bands = ['B1','B2','B3','B4','B5','B6','B7','B8','B8A','B9','B11','B12']
+    # landsat8_bands = ['SR_B1', 'SR_B2', 'SR_B3', 'SR_B4', 'SR_B5', 'SR_B6', 'SR_B7']
+    # re = emdat.getPointSR_FromCollections((7.305, 100.061), s2_bands, "COPERNICUS/S2_SR_HARMONIZED", ["2020-01-15", "2020-01-30"], scale=90)
+    # re.to_csv("test.csv")
 
 
 
